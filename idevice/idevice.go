@@ -7,11 +7,9 @@ package idevice
 #include <libimobiledevice/libimobiledevice.h>
 void event_proxy();
 static void device_callback(const idevice_event_t *event, void *user_data) {
-	printf("test    %d\n", event->event);
 	event_proxy(event);
 }
 static void _device_callback(void *user_data) {
-	printf("registering callback\n");
 	idevice_event_subscribe(device_callback, user_data);
 }
 */
@@ -22,14 +20,20 @@ import (
 	"unsafe"
 
 	"github.com/mattn/go-pointer"
+	"github.com/olebedev/emitter"
 )
 
 var (
 	mutex           sync.Mutex
-	events          []*internalEvent
+	emit            *emitter.Emitter
 	isSubscribed    bool
 	callbackPointer unsafe.Pointer
 )
+
+func init() {
+	emit = &emitter.Emitter{}
+	emit.Use("*", emitter.Void)
+}
 
 const (
 	// DeviceAdd a device was added
@@ -89,21 +93,18 @@ func Unsubscribe() {
 }
 
 // AddEvent Adds an event to be raised raise a device event happens.
-func AddEvent(callback func(deviceEvent DeviceEvent, userData interface{}), userData interface{}) (func(), error) {
+func AddEvent() (<-chan DeviceEvent, func()) {
 	mutex.Lock()
 	defer mutex.Unlock()
-	newEvent := &internalEvent{callback, userData}
-	events = append(events, newEvent)
-	return func() {
-		mutex.Lock()
-		defer mutex.Unlock()
-		for eventIndex, event := range events {
-			if event == newEvent {
-				events = append(events[:eventIndex], events[eventIndex+1:]...)
-				return
-			}
-		}
-	}, nil
+	out := make(chan DeviceEvent)
+	in := emit.On("event", func(event *emitter.Event) {
+		out <- event.Args[0].(DeviceEvent)
+	})
+	cancel := func() {
+		emit.Off("mediaAdded", in)
+		close(out)
+	}
+	return out, cancel
 }
 
 //export event_proxy
@@ -113,7 +114,5 @@ func event_proxy(deviceEvent unsafe.Pointer) {
 	d.Event = dInternal.Event
 	d.ConnectionType = dInternal.ConnectionType
 	d.UUID = C.GoString(dInternal.UUID)
-	for _, event := range events {
-		event.event(d, event.userData)
-	}
+	emit.Emit("event", d)
 }
