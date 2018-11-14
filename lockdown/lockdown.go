@@ -15,6 +15,7 @@ import (
 type Client interface {
 	Type() (string, error)
 	Pair() error
+	DeviceName() (string, error)
 	Close() error
 }
 
@@ -35,6 +36,19 @@ func NewClient(device idevice.Device, label string) (Client, error) {
 	return &client{p}, nil
 }
 
+// NewClientWithHandshake creates a new lockdown with a handshake
+func NewClientWithHandshake(device idevice.Device, label string) (Client, error) {
+	labelC := C.CString(label)
+	defer C.free(unsafe.Pointer(labelC))
+
+	var p C.lockdownd_client_t
+	err := resultToError(C.lockdownd_client_new_with_handshake((C.idevice_t)(idevice.GetPointer(device)), &p, labelC))
+	if err != nil {
+		return nil, err
+	}
+	return &client{p}, nil
+}
+
 func (s *client) Type() (string, error) {
 	var p *C.char
 	err := resultToError(C.lockdownd_query_type(s.p, &p))
@@ -48,6 +62,17 @@ func (s *client) Type() (string, error) {
 
 func (s *client) Pair() error {
 	return resultToError(C.lockdownd_pair(s.p, nil))
+}
+
+func (s *client) DeviceName() (string, error) {
+	var p *C.char
+	err := resultToError(C.lockdownd_get_device_name(s.p, &p))
+	var result string
+	if p != nil {
+		result = C.GoString(p)
+		C.free(unsafe.Pointer(p))
+	}
+	return result, err
 }
 
 func (s *client) Close() error {
