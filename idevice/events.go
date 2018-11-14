@@ -7,8 +7,8 @@ void event_proxy();
 static void device_callback(const idevice_event_t *event, void *user_data) {
 	event_proxy(event);
 }
-static void _device_callback(void *user_data) {
-	idevice_event_subscribe(device_callback, user_data);
+static idevice_error_t _device_callback(void *user_data) {
+	return idevice_event_subscribe(device_callback, user_data);
 }
 */
 import "C"
@@ -34,10 +34,10 @@ func init() {
 }
 
 const (
-	// DeviceAdd a device was added
-	DeviceAdd = 1
-	// DeviceRemove a device was removed
-	DeviceRemove = 2
+	// DeviceAdded a device was added
+	DeviceAdded = 1
+	// DeviceRemoved a device was removed
+	DeviceRemoved = 2
 	// DevicePaired a device was paired
 	DevicePaired = 3
 )
@@ -64,30 +64,45 @@ type callback struct {
 }
 
 // Subscribe to event.
-func Subscribe() {
+func Subscribe() error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
 	if isSubscribed {
-		return
+		return nil
 	}
 
 	callbackPointer = pointer.Save(&callback{})
-	C._device_callback(callbackPointer)
+	err := resultToError(C._device_callback(callbackPointer))
+
+	if err == nil {
+		isSubscribed = true
+	} else {
+		pointer.Unref(callbackPointer)
+		callbackPointer = nil
+	}
+
+	return err
 }
 
 // Unsubscribe from events.
-func Unsubscribe() {
+func Unsubscribe() error {
 	mutex.Lock()
 	defer mutex.Unlock()
 
 	if !isSubscribed {
-		return
+		return nil
 	}
 
-	C.idevice_event_unsubscribe()
+	err := resultToError(C.idevice_event_unsubscribe())
 
-	pointer.Unref(callbackPointer)
+	if err == nil {
+		isSubscribed = false
+		pointer.Unref(callbackPointer)
+		callbackPointer = nil
+	}
+
+	return err
 }
 
 // AddEvent Adds an event to be raised raise a device event happens.
