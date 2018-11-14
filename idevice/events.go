@@ -2,8 +2,6 @@ package idevice
 
 /*
 #cgo pkg-config: libimobiledevice-1.0
-#include <stdlib.h>
-#include <stdio.h>
 #include <libimobiledevice/libimobiledevice.h>
 void event_proxy();
 static void device_callback(const idevice_event_t *event, void *user_data) {
