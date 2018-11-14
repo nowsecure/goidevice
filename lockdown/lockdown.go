@@ -14,6 +14,7 @@ import (
 // Client is a lockdown client
 type Client interface {
 	Type() (string, error)
+	Pair() error
 	Close() error
 }
 
@@ -43,6 +44,10 @@ func (s *client) Type() (string, error) {
 		C.free(unsafe.Pointer(p))
 	}
 	return result, err
+}
+
+func (s *client) Pair() error {
+	return resultToError(C.lockdownd_pair(s.p, nil))
 }
 
 func (s *client) Close() error {
