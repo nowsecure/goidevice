@@ -2,7 +2,6 @@ package lockdown
 
 import (
 	"errors"
-	"log"
 )
 
 // #cgo pkg-config: libimobiledevice-1.0
@@ -16,7 +15,6 @@ var (
 )
 
 func resultToError(result C.lockdownd_error_t) error {
-	log.Println(result)
 	switch result {
 	case 0:
 		return nil
