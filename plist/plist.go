@@ -4,9 +4,7 @@ package plist
 // #include <stdlib.h>
 // #include <libimobiledevice/lockdown.h>
 import "C"
-
 import (
-	"C"
 	"unsafe"
 )
 
