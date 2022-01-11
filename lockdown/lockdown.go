@@ -4,18 +4,20 @@ package lockdown
 // #include <stdlib.h>
 // #include <libimobiledevice/lockdown.h>
 import "C"
-
 import (
 	"unsafe"
 
 	"github.com/pauldotknopf/goidevice/idevice"
+	"github.com/pauldotknopf/goidevice/plist"
 )
 
 // Client is a lockdown client
 type Client interface {
 	Type() (string, error)
 	Pair() error
+	ValidatePair() error
 	DeviceName() (string, error)
+	GetPList(string, string) (plist.PList, error)
 	Close() error
 }
 
@@ -64,6 +66,10 @@ func (s *client) Pair() error {
 	return resultToError(C.lockdownd_pair(s.p, nil))
 }
 
+func (s *client) ValidatePair() error {
+	return resultToError(C.lockdownd_validate_pair(s.p, nil))
+}
+
 func (s *client) DeviceName() (string, error) {
 	var p *C.char
 	err := resultToError(C.lockdownd_get_device_name(s.p, &p))
@@ -73,6 +79,29 @@ func (s *client) DeviceName() (string, error) {
 		C.free(unsafe.Pointer(p))
 	}
 	return result, err
+}
+
+func (s *client) GetPList(domain, key string) (plist.PList, error) {
+	var node C.plist_t
+
+	domainC := C.CString(domain)
+	keyC := C.CString(key)
+	defer C.free(unsafe.Pointer(domainC))
+	defer C.free(unsafe.Pointer(keyC))
+
+	if domain == "" {
+		domainC = nil
+	}
+	if key == "" {
+		keyC = nil
+	}
+
+	err := resultToError(C.lockdownd_get_value(s.p, domainC, keyC, &node))
+	if err != nil {
+		return nil, err
+	}
+
+	return plist.FromPointer(unsafe.Pointer(node)), nil
 }
 
 func (s *client) Close() error {
