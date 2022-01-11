@@ -17,7 +17,7 @@ type Client interface {
 	Pair() error
 	ValidatePair() error
 	DeviceName() (string, error)
-	GetPList(string, string) (plist.PList, error)
+	PList() (plist.PList, error)
 	Close() error
 }
 
@@ -81,22 +81,9 @@ func (s *client) DeviceName() (string, error) {
 	return result, err
 }
 
-func (s *client) GetPList(domain, key string) (plist.PList, error) {
+func (s *client) PList() (plist.PList, error) {
 	var node C.plist_t
-
-	domainC := C.CString(domain)
-	keyC := C.CString(key)
-	defer C.free(unsafe.Pointer(domainC))
-	defer C.free(unsafe.Pointer(keyC))
-
-	if domain == "" {
-		domainC = nil
-	}
-	if key == "" {
-		keyC = nil
-	}
-
-	err := resultToError(C.lockdownd_get_value(s.p, domainC, keyC, &node))
+	err := resultToError(C.lockdownd_get_value(s.p, nil, nil, &node))
 	if err != nil {
 		return nil, err
 	}
