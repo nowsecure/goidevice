@@ -5,6 +5,7 @@ package lockdown
 // #include <libimobiledevice/lockdown.h>
 import "C"
 import (
+	"errors"
 	"unsafe"
 
 	"github.com/pauldotknopf/goidevice/idevice"
@@ -17,7 +18,7 @@ type Client interface {
 	Pair() error
 	ValidatePair() error
 	DeviceName() (string, error)
-	PList() (plist.PList, error)
+	PList(domain string) (plist.PList, error)
 	Close() error
 }
 
@@ -52,14 +53,10 @@ func NewClientWithHandshake(device idevice.Device, label string) (Client, error)
 }
 
 func (s *client) Type() (string, error) {
-	var p *C.char
+	var p *C.char = nil
 	err := resultToError(C.lockdownd_query_type(s.p, &p))
-	var result string
-	if p != nil {
-		result = C.GoString(p)
-		C.free(unsafe.Pointer(p))
-	}
-	return result, err
+	defer C.free(unsafe.Pointer(p))
+	return C.GoString(p), err
 }
 
 func (s *client) Pair() error {
@@ -73,22 +70,30 @@ func (s *client) ValidatePair() error {
 func (s *client) DeviceName() (string, error) {
 	var p *C.char
 	err := resultToError(C.lockdownd_get_device_name(s.p, &p))
-	var result string
-	if p != nil {
-		result = C.GoString(p)
-		C.free(unsafe.Pointer(p))
-	}
-	return result, err
+	defer C.free(unsafe.Pointer(p))
+	return C.GoString(p), err
 }
 
-func (s *client) PList() (plist.PList, error) {
+func (s *client) PList(domain string) (plist.PList, error) {
+	var domainC *C.char = nil
+
+	if domain != "" {
+		domainC = C.CString(domain)
+		defer C.free(unsafe.Pointer(domainC))
+	}
+
 	var node C.plist_t
-	err := resultToError(C.lockdownd_get_value(s.p, nil, nil, &node))
+	err := resultToError(C.lockdownd_get_value(s.p, domainC, nil, &node))
 	if err != nil {
 		return nil, err
 	}
 
-	return plist.FromPointer(unsafe.Pointer(node)), nil
+	list := plist.FromPointer(unsafe.Pointer(node))
+	if list == nil {
+		return nil, errors.New("no plist was found for the query")
+	}
+
+	return list, nil
 }
 
 func (s *client) Close() error {

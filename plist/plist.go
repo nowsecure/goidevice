@@ -1,10 +1,11 @@
 package plist
 
-// #cgo pkg-config: libimobiledevice-1.0
+// #cgo pkg-config: libplist-2.0
 // #include <stdlib.h>
-// #include <libimobiledevice/lockdown.h>
+// #include <plist/plist.h>
 import "C"
 import (
+	"fmt"
 	"unsafe"
 )
 
@@ -36,12 +37,15 @@ const (
 // PList object
 type PList interface {
 	Type() int
+	Size() int
 	ArraySize() int
 	ArrayItem(index int) PList
 	SetItem(key string, value interface{})
-	GetItem(key string) PList
+	GetItem(key string) (PList, error)
 	Append(value interface{})
 	String() string
+	Int() int
+	Bool() bool
 	Free()
 }
 
@@ -79,7 +83,7 @@ func CreateArray() PList {
 	return &plist{p}
 }
 
-// SetItem .
+// Type return the plist type
 func (s *plist) Type() int {
 	return (int)(C.plist_get_node_type(s.p))
 }
@@ -87,6 +91,11 @@ func (s *plist) Type() int {
 // ArraySize .
 func (s *plist) ArraySize() int {
 	return (int)(C.plist_array_get_size(s.p))
+}
+
+// Size size of the plist dict
+func (s *plist) Size() int {
+	return (int)(C.plist_dict_get_size(s.p))
 }
 
 // ArrayItem .
@@ -106,31 +115,49 @@ func (s *plist) SetItem(key string, value interface{}) {
 	C.plist_dict_set_item(s.p, keyC, (C.plist_t)(GetPointer(convertToPList(value))))
 }
 
-// GetItem .
-func (s *plist) GetItem(key string) PList {
+// GetItem returns the plist/node at the specified key
+// if the key is return nothing nil and an error is returned
+func (s *plist) GetItem(key string) (PList, error) {
 	keyC := C.CString(key)
 	defer C.free(unsafe.Pointer(keyC))
 
 	p := C.plist_dict_get_item(s.p, keyC)
 	if p == nil {
-		return nil
+		return nil, fmt.Errorf("no valid value in plist at key of %s", key)
 	}
-	return &plist{p}
+	return &plist{p}, nil
 }
 
 func (s *plist) Append(value interface{}) {
 	C.plist_array_append_item(s.p, (C.plist_t)(GetPointer(convertToPList(value))))
 }
 
+// String returns the node as string,
+// an empty string if node is not a string.
+// (see Type() to check node type)
 func (s *plist) String() string {
-	var p *C.char
+	var p *C.char = nil
 	C.plist_get_string_val(s.p, &p)
-	var result string
-	if p != nil {
-		result = C.GoString(p)
-		C.free(unsafe.Pointer(p))
-	}
-	return result
+	defer C.free(unsafe.Pointer(p))
+	return C.GoString(p)
+}
+
+// Int returns the node as an int,
+// 0 if node is not an int.
+// (see Type() to check node type)
+func (s *plist) Int() int {
+	var p C.uint64_t
+	C.plist_get_uint_val(s.p, &p)
+	return int(p)
+}
+
+// Bool returns the node as a bool
+// false if node not an bool
+// (see Type() to check node type)
+func (s *plist) Bool() bool {
+	var p C.uint8_t
+	C.plist_get_bool_val(s.p, &p)
+	return int(p) == 1
 }
 
 func (s *plist) Free() {
@@ -146,12 +173,18 @@ func GetPointer(p PList) unsafe.Pointer {
 	return unsafe.Pointer(internal.p)
 }
 
-// FromPointer returns a PList from a raw plist_t pointer
+// FromPointer returns PList from a raw plist_t pointer
+// if the plist is invalid it will return nil
 func FromPointer(p unsafe.Pointer) PList {
 	if p == nil {
 		return nil
 	}
-	return &plist{(C.plist_t)(p)}
+
+	plist := &plist{(C.plist_t)(p)}
+	if plist.Size() == 0 {
+		return nil
+	}
+	return plist
 }
 
 func convertToPList(val interface{}) PList {
