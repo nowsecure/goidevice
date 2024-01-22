@@ -1,4 +1,4 @@
-module github.com/pauldotknopf/goidevice
+module github.com/nowsecure/goidevice
 
 go 1.21
 

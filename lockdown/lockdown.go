@@ -8,8 +8,8 @@ import (
 	"errors"
 	"unsafe"
 
-	"github.com/pauldotknopf/goidevice/idevice"
-	"github.com/pauldotknopf/goidevice/plist"
+	"github.com/nowsecure/goidevice/idevice"
+	"github.com/nowsecure/goidevice/plist"
 )
 
 // Client is a lockdown client
