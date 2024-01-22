@@ -8,8 +8,8 @@ import "unsafe"
 
 // Device is an iOS device
 type Device interface {
-	UUID() (string, error)
-	Close() error
+	UDID() (string, error)
+	Free() error
 }
 
 type device struct {
@@ -17,31 +17,26 @@ type device struct {
 }
 
 // New up an iOS device object.
-func New(uuid string) (Device, error) {
-	uuidC := C.CString(uuid)
-	defer C.free(unsafe.Pointer(uuidC))
-	//C.myprint(cs)
-	//var p unsafe.Pointer
+func New(udid string) (Device, error) {
+	udidC := C.CString(udid)
+	defer C.free(unsafe.Pointer(udidC))
+
 	var p C.idevice_t
-	err := resultToError(C.idevice_new(&p, uuidC))
+	err := resultToError(C.idevice_new(&p, udidC))
 	if err != nil {
 		return nil, err
 	}
 	return &device{p}, nil
 }
 
-func (s *device) UUID() (string, error) {
-	var p *C.char
+func (s *device) UDID() (string, error) {
+	var p *C.char = nil
 	err := resultToError(C.idevice_get_udid(s.p, &p))
-	var result string
-	if p != nil {
-		result = C.GoString(p)
-		C.free(unsafe.Pointer(p))
-	}
-	return result, err
+	defer C.free(unsafe.Pointer(p))
+	return C.GoString(p), err
 }
 
-func (s *device) Close() error {
+func (s *device) Free() error {
 	err := resultToError(C.idevice_free(s.p))
 	if err == nil {
 		s.p = nil
