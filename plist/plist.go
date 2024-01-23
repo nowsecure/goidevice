@@ -42,6 +42,7 @@ type PList interface {
 	ArrayItem(index int) PList
 	SetItem(key string, value interface{})
 	GetItem(key string) (PList, error)
+	GetItemValue(key string) (PList, error)
 	Append(value interface{})
 	String() string
 	Int() int
@@ -115,9 +116,28 @@ func (s *plist) SetItem(key string, value interface{}) {
 	C.plist_dict_set_item(s.p, keyC, (C.plist_t)(GetPointer(convertToPList(value))))
 }
 
+// GetItemValue is similar to GetItem however it creates
+// a copy of the current node only perserving it and its
+// childern for traversal
+func (s *plist) GetItemValue(key string) (PList, error) {
+	p, err := s.getItem(key)
+	if err != nil {
+		return nil, err
+	}
+	pCopy := C.plist_copy(p.p)
+	C.plist_free(p.p)
+	return &plist{pCopy}, err
+}
+
 // GetItem returns the plist/node at the specified key
+// maintains parent/child relationship of the plist
 // if the key is return nothing nil and an error is returned
 func (s *plist) GetItem(key string) (PList, error) {
+	return s.getItem(key)
+}
+
+// getItem is a wrapper around plist_get_dict_item
+func (s *plist) getItem(key string) (*plist, error) {
 	keyC := C.CString(key)
 	defer C.free(unsafe.Pointer(keyC))
 
