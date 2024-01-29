@@ -5,6 +5,7 @@ package plist
 // #include <plist/plist.h>
 import "C"
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 )
@@ -34,130 +35,106 @@ const (
 	PListTypeNone = 10
 )
 
-// PList object
-type PList interface {
-	Type() int
-	Size() int
-	ArraySize() int
-	ArrayItem(index int) PList
-	SetItem(key string, value interface{})
-	GetItem(key string) (PList, error)
-	GetItemValue(key string) (PList, error)
-	Append(value interface{})
-	String() string
-	Int() int
-	Bool() bool
-	Free()
-}
-
-type plist struct {
-	p C.plist_t
+type PList struct {
+	P C.plist_t
 }
 
 // Create a plist
-func Create() PList {
-	p := C.plist_new_dict()
-	if p == nil {
-		return nil
-	}
-	return &plist{p}
+func Create() *PList {
+	return &PList{C.plist_new_dict()}
 }
 
 // CreateString .
-func CreateString(value string) PList {
+func CreateString(value string) *PList {
 	valueC := C.CString(value)
 	defer C.free(unsafe.Pointer(valueC))
 
-	p := C.plist_new_string(valueC)
-	if p == nil {
-		return nil
-	}
-	return &plist{p}
+	return &PList{C.plist_new_string(valueC)}
 }
 
 // CreateArray .
-func CreateArray() PList {
-	p := C.plist_new_array()
-	if p == nil {
-		return nil
-	}
-	return &plist{p}
+func CreateArray() *PList {
+	return &PList{C.plist_new_array()}
 }
 
 // Type return the plist type
-func (s *plist) Type() int {
-	return (int)(C.plist_get_node_type(s.p))
+func (s *PList) Type() int {
+	return (int)(C.plist_get_node_type(s.P))
 }
 
 // ArraySize .
-func (s *plist) ArraySize() int {
-	return (int)(C.plist_array_get_size(s.p))
+func (s *PList) ArraySize() int {
+	return (int)(C.plist_array_get_size(s.P))
 }
 
 // Size size of the plist dict
-func (s *plist) Size() int {
-	return (int)(C.plist_dict_get_size(s.p))
+func (s *PList) Size() int {
+	return (int)(C.plist_dict_get_size(s.P))
 }
 
 // ArrayItem .
-func (s *plist) ArrayItem(index int) PList {
-	p := C.plist_array_get_item(s.p, C.uint(index))
-	if p == nil {
-		return nil
-	}
-	return &plist{p}
+func (s *PList) ArrayItem(index int) *PList {
+	return &PList{C.plist_array_get_item(s.P, C.uint(index))}
 }
 
 // SetItem .
-func (s *plist) SetItem(key string, value interface{}) {
+func (s *PList) SetItem(key string, value PList) {
 	keyC := C.CString(key)
 	defer C.free(unsafe.Pointer(keyC))
 
-	C.plist_dict_set_item(s.p, keyC, (C.plist_t)(GetPointer(convertToPList(value))))
+	C.plist_dict_set_item(s.P, keyC, value.P)
 }
 
 // GetItemValue is similar to GetItem however it creates
 // a copy of the current node only perserving it and its
 // childern for traversal
-func (s *plist) GetItemValue(key string) (PList, error) {
+func (s *PList) GetItemValue(key string) (*PList, error) {
 	p, err := s.getItem(key)
 	if err != nil {
 		return nil, err
 	}
-	pCopy := C.plist_copy(p.p)
-	C.plist_free(p.p)
-	return &plist{pCopy}, err
+	pCopy := C.plist_copy(p.P)
+	C.plist_free(p.P)
+	return &PList{pCopy}, err
 }
 
 // GetItem returns the plist/node at the specified key
 // maintains parent/child relationship of the plist
 // if the key is return nothing nil and an error is returned
-func (s *plist) GetItem(key string) (PList, error) {
+func (s *PList) GetItem(key string) (*PList, error) {
 	return s.getItem(key)
 }
 
 // getItem is a wrapper around plist_get_dict_item
-func (s *plist) getItem(key string) (*plist, error) {
+func (s *PList) getItem(key string) (*PList, error) {
 	keyC := C.CString(key)
 	defer C.free(unsafe.Pointer(keyC))
 
-	p := C.plist_dict_get_item(s.p, keyC)
+	p := C.plist_dict_get_item(s.P, keyC)
 	if p == nil {
-		return nil, fmt.Errorf("no valid value in plist at key of %s", key)
+		return &PList{p}, fmt.Errorf("no valid value in plist at key of %s", key)
 	}
-	return &plist{p}, nil
+	return &PList{p}, nil
 }
 
-func (s *plist) Append(value interface{}) {
-	C.plist_array_append_item(s.p, (C.plist_t)(GetPointer(convertToPList(value))))
+// RemoveItem remove item from plist
+func (s *PList) RemoveItem(key string) {
+	keyC := C.CString(key)
+	defer C.free(unsafe.Pointer(keyC))
+	C.plist_dict_remove_item(s.P, keyC)
+}
+
+// ArrayAppendItem appent item to array
+func (s *PList) ArrayAppendItem(value PList) {
+	C.plist_array_append_item(s.P, value.P)
 }
 
 // String returns the node as string,
 // an empty string if node is not a string.
 // (see Type() to check node type)
-func (s *plist) String() string {
+func (s *PList) String() string {
 	var p *C.char = nil
-	C.plist_get_string_val(s.p, &p)
+	C.plist_get_string_val(s.P, &p)
 	defer C.free(unsafe.Pointer(p))
 	return C.GoString(p)
 }
@@ -165,54 +142,47 @@ func (s *plist) String() string {
 // Int returns the node as an int,
 // 0 if node is not an int.
 // (see Type() to check node type)
-func (s *plist) Int() int {
+func (s *PList) Int() int {
 	var p C.uint64_t
-	C.plist_get_uint_val(s.p, &p)
+	C.plist_get_uint_val(s.P, &p)
 	return int(p)
 }
 
 // Bool returns the node as a bool
 // false if node not an bool
 // (see Type() to check node type)
-func (s *plist) Bool() bool {
+func (s *PList) Bool() bool {
 	var p C.uint8_t
-	C.plist_get_bool_val(s.p, &p)
+	C.plist_get_bool_val(s.P, &p)
 	return int(p) == 1
 }
 
-func (s *plist) Free() {
-	if s.p != nil {
-		C.plist_free(s.p)
-		s.p = nil
-	}
+func (s *PList) Free() {
+	C.plist_free(s.P)
+}
+
+func (s *PList) XML() string {
+	var buf *C.char = nil
+	var num C.uint
+	C.plist_to_xml(s.P, &buf, &num)
+	return C.GoString(buf)
 }
 
 // GetPointer returns the raw internal pointer to the device.
 func GetPointer(p PList) unsafe.Pointer {
-	internal, _ := p.(*plist)
-	return unsafe.Pointer(internal.p)
+	return unsafe.Pointer(p.P)
 }
 
 // FromPointer returns PList from a raw plist_t pointer
 // if the plist is invalid it will return nil
-func FromPointer(p unsafe.Pointer) PList {
+func FromPointer(p unsafe.Pointer) (*PList, error) {
 	if p == nil {
-		return nil
+		return nil, nil
 	}
 
-	plist := &plist{(C.plist_t)(p)}
-	if plist.Size() == 0 {
-		return nil
+	plist := &PList{(C.plist_t)(p)}
+	if plist.Size() == 0 && plist.ArraySize() == 0 {
+		return nil, errors.New("no plist was found for the query")
 	}
-	return plist
-}
-
-func convertToPList(val interface{}) PList {
-	if str, ok := val.(string); ok {
-		return CreateString(str)
-	} else if p, ok := val.(PList); ok {
-		return p
-	} else {
-		panic("invalid type")
-	}
+	return plist, nil
 }
