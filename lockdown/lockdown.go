@@ -5,7 +5,6 @@ package lockdown
 // #include <libimobiledevice/lockdown.h>
 import "C"
 import (
-	"errors"
 	"unsafe"
 
 	"github.com/nowsecure/goidevice/idevice"
@@ -18,7 +17,7 @@ type Client interface {
 	Pair() error
 	ValidatePair() error
 	DeviceName() (string, error)
-	PList(domain string) (plist.PList, error)
+	PList(domain string) (*plist.PList, error)
 	Close() error
 }
 
@@ -74,7 +73,7 @@ func (s *client) DeviceName() (string, error) {
 	return C.GoString(p), err
 }
 
-func (s *client) PList(domain string) (plist.PList, error) {
+func (s *client) PList(domain string) (*plist.PList, error) {
 	var domainC *C.char = nil
 
 	if domain != "" {
@@ -88,9 +87,9 @@ func (s *client) PList(domain string) (plist.PList, error) {
 		return nil, err
 	}
 
-	list := plist.FromPointer(unsafe.Pointer(node))
-	if list == nil {
-		return nil, errors.New("no plist was found for the query")
+	list, err := plist.FromPointer(unsafe.Pointer(node))
+	if err != nil {
+		return nil, err
 	}
 
 	return list, nil
