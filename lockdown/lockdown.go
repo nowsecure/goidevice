@@ -2,9 +2,12 @@ package lockdown
 
 // #cgo pkg-config: libimobiledevice-1.0
 // #include <stdlib.h>
+// #include <libimobiledevice/libimobiledevice.h>
 // #include <libimobiledevice/lockdown.h>
+// #include <libimobiledevice/service.h>
 import "C"
 import (
+	"errors"
 	"unsafe"
 
 	"github.com/nowsecure/goidevice/idevice"
@@ -19,6 +22,7 @@ type Client interface {
 	DeviceName() (string, error)
 	PList(domain string) (*plist.PList, error)
 	Close() error
+	StartService(d idevice.Device, serviceName string) (*Service, error)
 }
 
 type client struct {
@@ -101,4 +105,53 @@ func (s *client) Close() error {
 		s.p = nil
 	}
 	return err
+}
+
+type Service struct {
+	s C.service_client_t
+}
+
+const (
+	CRASH_REPORT_MOVER_SERVICE = "com.apple.crashreportmover"
+)
+
+func (s *client) StartService(d idevice.Device, serviceName string) (*Service, error) {
+	var p C.lockdownd_service_descriptor_t
+
+	svc := C.CString(serviceName)
+	defer C.free(unsafe.Pointer(svc))
+	err := resultToError(C.lockdownd_start_service(s.p, svc, &p))
+	if err != nil {
+		return nil, err
+	}
+
+	var c C.service_client_t
+	res := C.service_client_new((C.idevice_t)(idevice.GetPointer(d)), p, &c)
+	C.lockdownd_service_descriptor_free(p)
+	if res != 0 {
+		return nil, errors.New(":(")
+	}
+	return &Service{c}, nil
+}
+
+func (s *Service) ReadPing() error {
+	var msg [4]int8
+	var n C.uint32_t
+
+	var attempts = 0
+	for {
+		res := C.service_receive_with_timeout(s.s, (*C.char)(&msg[0]), 4, &n, 2000)
+		switch res {
+		case 0:
+			return nil
+		case -7:
+			attempts++
+			if attempts == 10 {
+				return errors.New("failed 10 attempts to ping")
+			}
+			continue
+		default:
+			return errors.New(":(((")
+		}
+	}
 }
