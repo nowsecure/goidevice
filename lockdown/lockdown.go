@@ -21,8 +21,10 @@ type Client interface {
 	ValidatePair() error
 	DeviceName() (string, error)
 	PList(domain string) (*plist.PList, error)
-	Close() error
+	Free() error
+	GetClient() unsafe.Pointer
 	StartService(d idevice.Device, serviceName string) (*Service, error)
+	StartServiceClient(d idevice.Device, serviceName string) (*Service, error)
 }
 
 type client struct {
@@ -99,25 +101,30 @@ func (s *client) PList(domain string) (*plist.PList, error) {
 	return list, nil
 }
 
-func (s *client) Close() error {
-	err := resultToError(C.lockdownd_client_free(s.p))
-	if err == nil {
-		s.p = nil
-	}
-	return err
+func (s *client) Free() error {
+	return resultToError(C.lockdownd_client_free(s.p))
 }
 
-type Service struct {
-	s C.service_client_t
+func (s *client) GetClient() unsafe.Pointer {
+	return unsafe.Pointer(s.p)
 }
 
-const (
-	CRASH_REPORT_MOVER_SERVICE = "com.apple.crashreportmover"
-)
+// GetDescriptor gets the lockdown descriptor for the service
+func (s *Service) GetDescriptor() unsafe.Pointer {
+	return unsafe.Pointer(s.descriptor)
+}
+
+func (s *Service) FreeDescriptor() {
+	C.lockdownd_service_descriptor_free(s.descriptor)
+}
+
+func (s *Service) Free() {
+	C.lockdownd_service_descriptor_free(s.descriptor)
+	C.service_client_free(s.s)
+}
 
 func (s *client) StartService(d idevice.Device, serviceName string) (*Service, error) {
 	var p C.lockdownd_service_descriptor_t
-
 	svc := C.CString(serviceName)
 	defer C.free(unsafe.Pointer(svc))
 	err := resultToError(C.lockdownd_start_service(s.p, svc, &p))
@@ -125,13 +132,32 @@ func (s *client) StartService(d idevice.Device, serviceName string) (*Service, e
 		return nil, err
 	}
 
-	var c C.service_client_t
-	res := C.service_client_new((C.idevice_t)(idevice.GetPointer(d)), p, &c)
-	C.lockdownd_service_descriptor_free(p)
-	if res != 0 {
-		return nil, errors.New(":(")
+	return &Service{descriptor: p}, nil
+}
+
+type Service struct {
+	s          C.service_client_t
+	descriptor C.lockdownd_service_descriptor_t
+}
+
+const (
+	CRASH_REPORT_MOVER_SERVICE       = "com.apple.crashreportmover"
+	CRASH_REPORT_COPY_MOBILE_SERVICE = "com.apple.crashreportcopymobile"
+)
+
+func (s *client) StartServiceClient(d idevice.Device, serviceName string) (*Service, error) {
+	svc, err := s.StartService(d, serviceName)
+	if err != nil {
+		return nil, err
 	}
-	return &Service{c}, nil
+
+	err = serviceResultToError(
+		C.service_client_new((C.idevice_t)(idevice.GetPointer(d)),
+			svc.descriptor,
+			&svc.s,
+		),
+	)
+	return svc, err
 }
 
 func (s *Service) ReadPing() error {

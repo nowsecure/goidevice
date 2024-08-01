@@ -7,7 +7,7 @@ package installation
 //
 // void instproxy_client_options_add_pair(plist_t client_opts, char * key, char * value)
 // {
-//		instproxy_client_options_add(client_opts, key, value, NULL);
+// 		instproxy_client_options_add(client_opts, key, value, NULL);
 // }
 import "C"
 import (
