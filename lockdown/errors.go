@@ -2,6 +2,7 @@ package lockdown
 
 // #cgo pkg-config: libimobiledevice-1.0
 // #include <libimobiledevice/lockdown.h>
+// #include <libimobiledevice/service.h>
 import "C"
 import (
 	"errors"
@@ -172,5 +173,26 @@ func resultToError(result C.lockdownd_error_t) error {
 		return ErrMCChallengeRequired
 	default:
 		return ErrUnknown
+	}
+}
+
+func serviceResultToError(result C.service_error_t) error {
+	switch result {
+	case 0:
+		return nil
+	case -1:
+		return errors.New("invalid args")
+	case -3:
+		return errors.New("mux error")
+	case -4:
+		return errors.New("ssl error")
+	case -5:
+		return errors.New("start service error")
+	case -6:
+		return errors.New("not enough data error")
+	case -7:
+		return errors.New("timeout")
+	default:
+		return errors.New("unknown")
 	}
 }

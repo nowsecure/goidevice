@@ -2,9 +2,12 @@ package lockdown
 
 // #cgo pkg-config: libimobiledevice-1.0
 // #include <stdlib.h>
+// #include <libimobiledevice/libimobiledevice.h>
 // #include <libimobiledevice/lockdown.h>
+// #include <libimobiledevice/service.h>
 import "C"
 import (
+	"errors"
 	"unsafe"
 
 	"github.com/nowsecure/goidevice/idevice"
@@ -18,7 +21,10 @@ type Client interface {
 	ValidatePair() error
 	DeviceName() (string, error)
 	PList(domain string) (*plist.PList, error)
-	Close() error
+	Free() error
+	GetClient() unsafe.Pointer
+	StartService(d idevice.Device, serviceName string) (*Service, error)
+	StartServiceClient(d idevice.Device, serviceName string) (*Service, error)
 }
 
 type client struct {
@@ -95,10 +101,83 @@ func (s *client) PList(domain string) (*plist.PList, error) {
 	return list, nil
 }
 
-func (s *client) Close() error {
-	err := resultToError(C.lockdownd_client_free(s.p))
-	if err == nil {
-		s.p = nil
+func (s *client) Free() error {
+	return resultToError(C.lockdownd_client_free(s.p))
+}
+
+func (s *client) GetClient() unsafe.Pointer {
+	return unsafe.Pointer(s.p)
+}
+
+// GetDescriptor gets the lockdown descriptor for the service
+func (s *Service) GetDescriptor() unsafe.Pointer {
+	return unsafe.Pointer(s.descriptor)
+}
+
+func (s *Service) FreeDescriptor() {
+	C.lockdownd_service_descriptor_free(s.descriptor)
+}
+
+func (s *Service) Free() {
+	C.lockdownd_service_descriptor_free(s.descriptor)
+	C.service_client_free(s.s)
+}
+
+func (s *client) StartService(d idevice.Device, serviceName string) (*Service, error) {
+	var p C.lockdownd_service_descriptor_t
+	svc := C.CString(serviceName)
+	defer C.free(unsafe.Pointer(svc))
+	err := resultToError(C.lockdownd_start_service(s.p, svc, &p))
+	if err != nil {
+		return nil, err
 	}
-	return err
+
+	return &Service{descriptor: p}, nil
+}
+
+type Service struct {
+	s          C.service_client_t
+	descriptor C.lockdownd_service_descriptor_t
+}
+
+const (
+	CRASH_REPORT_MOVER_SERVICE       = "com.apple.crashreportmover"
+	CRASH_REPORT_COPY_MOBILE_SERVICE = "com.apple.crashreportcopymobile"
+)
+
+func (s *client) StartServiceClient(d idevice.Device, serviceName string) (*Service, error) {
+	svc, err := s.StartService(d, serviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	err = serviceResultToError(
+		C.service_client_new((C.idevice_t)(idevice.GetPointer(d)),
+			svc.descriptor,
+			&svc.s,
+		),
+	)
+	return svc, err
+}
+
+func (s *Service) ReadPing() error {
+	var msg [4]int8
+	var n C.uint32_t
+
+	var attempts = 0
+	for {
+		res := C.service_receive_with_timeout(s.s, (*C.char)(&msg[0]), 4, &n, 2000)
+		switch res {
+		case 0:
+			return nil
+		case -7:
+			attempts++
+			if attempts == 10 {
+				return errors.New("failed 10 attempts to ping")
+			}
+			continue
+		default:
+			return errors.New(":(((")
+		}
+	}
 }
